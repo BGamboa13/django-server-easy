@@ -69,41 +69,50 @@ clone_and_configure_project() {
     read -p "Indique el nombre de la carpeta del proyecto: " project_name
     read -p "Indique el nombre de la app principal de Django: " dj_app
 
+    # Verificar si el directorio /home/django existe, si no, crearlo
+    if [ ! -d "/home/django" ]; then
+        sudo mkdir /home/django || { echo "Error: No se pudo crear el directorio /home/django"; exit 1; }
+    fi
+
+    # Cambiar al directorio /home/django
+    cd /home/django || { echo "Error: No se pudo cambiar al directorio /home/django"; exit 1; }
+
     # Clonar el repositorio
-    git -C /home/django clone $git_repo $project_name
+    git clone "$git_repo" "$project_name" || { echo "Error al clonar el repositorio"; exit 1; }
 
     # Instalar dependencias
-    pip install -q -r /home/django/$project_name/requirements.txt
+    pip install -q -r "/home/django/$project_name/requirements.txt" || { echo "Error al instalar las dependencias"; exit 1; }
 
     # Configurar certificado SSL
     read -p "Indique el nombre de dominio asociado al proyecto: " domain_name
-    sudo certbot certonly --nginx -d $domain_name
+    sudo certbot certonly --nginx -d "$domain_name" || { echo "Error al configurar el certificado SSL"; exit 1; }
 
     # Configurar Nginx
-    sudo touch /etc/nginx/sites-available/$project_name
-    sudo ln -s /etc/nginx/sites-available/$project_name /etc/nginx/sites-enabled/$project_name
+    sudo touch "/etc/nginx/sites-available/$project_name"
+    sudo ln -s "/etc/nginx/sites-available/$project_name" "/etc/nginx/sites-enabled/$project_name"
     sudo rm /etc/nginx/sites-enabled/default
 
     # Configurar supervisor
-    sudo touch /etc/supervisor/conf.d/$project_name.conf
-    echo "[program:$project_name]" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "command=/home/django/.venv/bin/gunicorn_start" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "user=django" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "autostart=true" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "autorestart=true" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "redirect_stderr=true" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
-    echo "stdout_logfile=/home/django/logs/$project_name-error.log" | sudo tee -a /etc/supervisor/conf.d/$project_name.conf
+    sudo touch "/etc/supervisor/conf.d/$project_name.conf"
+    echo "[program:$project_name]" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "command=/home/django/.venv/bin/gunicorn_start" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "user=django" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "autostart=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "autorestart=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "redirect_stderr=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    echo "stdout_logfile=/home/django/logs/$project_name-error.log" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
 
     # Levantar el servidor
     start_server
 }
 
-# Función principal
-main() {
-    print_title "INICIANDO SCRIPT"
+# Función para crear el entorno virtual
+create_virtual_environment() {
+    virtualenv /home/django/.venv --python=python3 || { echo "Error al crear el entorno virtual"; exit 1; }
+}
 
-    # Actualización e instalación de paquetes básicos
-    print_title "INSTALANDO PAQUETES"
+# Función para instalar paquetes básicos
+install_basic_packages() {
     sudo apt-get -qq update
     sudo apt-get -qq upgrade
     install_package "python3-dev"
@@ -115,28 +124,20 @@ main() {
     install_package "supervisor"
     install_package "certbot"
     install_package "python3-certbot-nginx"
+    install_package "git"
+}
 
-    # Instalación de la última versión de Python
-    print_title "INSTALANDO LA ÚLTIMA VERSIÓN DE PYTHON"
-    sudo add-apt-repository -y ppa:deadsnakes/ppa
-    sudo apt-get -qq update
-    install_package "python3.11"
+# Función principal
+main() {
+    print_title "INICIANDO SCRIPT"
 
-    # Configuración de Firewall
-    print_title "CONFIGURANDO FIREWALL (ufw)"
-    sudo ufw allow OpenSSH
-    sudo ufw allow 'Nginx Full'
-    sudo ufw --force enable
+    # Instalación de paquetes básicos
+    print_title "INSTALANDO PAQUETES BÁSICOS"
+    install_basic_packages
 
-    # Configuración de SELinux (si está instalado)
-    if command -v getenforce &>/dev/null; then
-        print_subtitle "CONFIGURANDO SELINUX"
-        sudo setsebool -P httpd_can_network_connect 1
-    fi
-
-    # Crear entorno virtual
+    # Crear el entorno virtual
     print_title "CREANDO ENTORNO VIRTUAL"
-    virtualenv /home/django/.venv --python=python3
+    create_virtual_environment
 
     # Obtener la opción del usuario
     get_user_option
