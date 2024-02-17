@@ -1,152 +1,100 @@
 #!/bin/bash
-echo "==1== INICIANDO === "
-sudo ln -svf /usr/bin/python3 /usr/bin/python
 
-echo "==2== Actualizando el Sistema === "
+# Función para imprimir mensajes con formato de título
+print_title() {
+    echo "== $1 =="
+}
+
+# Función para imprimir mensajes con formato de subsección
+print_subtitle() {
+    echo "-- $1 --"
+}
+
+# Función para instalar paquetes y manejar errores
+install_package() {
+    sudo apt-get -qq install "$1" || { echo "Error al instalar $1"; exit 1; }
+}
+
+# Actualización e instalación de paquetes básicos
+print_title "INICIANDO"
 sudo apt-get -qq update
 sudo apt-get -qq upgrade
+install_package "python3-dev"
+install_package "python3-pip"
+install_package "python3-venv"
+install_package "sqlite3"
+install_package "libsqlite3-dev"
+install_package "nginx"
+install_package "supervisor"
+install_package "certbot"
 
-echo "==3== Instalamos las dependencia para usar PostgreSQL con Python/Django: === "
-sudo apt-get -qq install build-essential libpq-dev python-dev
+# Instalación de la última versión de Python
+print_title "INSTALANDO LA ÚLTIMA VERSIÓN DE PYTHON"
+sudo add-apt-repository -y ppa:deadsnakes/ppa
+sudo apt-get -qq update
+install_package "python3.10"
 
-echo "==4== Instalamos PostgreSQL Server: === "
-sudo apt-get -qq install postgresql postgresql-contrib
+# Configuración de Firewall
+print_title "CONFIGURANDO FIREWALL (ufw)"
+sudo ufw allow OpenSSH
+sudo ufw allow 'Nginx Full'
+sudo ufw --force enable
 
-echo "==5== Instalamos Nginx: === "
-sudo apt-get -qq install nginx
+# Configuración de SELinux (si está instalado)
+if command -v getenforce &>/dev/null; then
+    print_subtitle "CONFIGURANDO SELINUX"
+    sudo setsebool -P httpd_can_network_connect 1
+fi
 
-echo "==6== Instalamos Supervisor: === "
-sudo apt-get -qq install supervisor
+# Función para obtener la opción del usuario (actualizar o crear)
+get_user_option() {
+    read -p "Seleccione una opción: 
+    1. Actualizar un certificado existente para un proyecto.
+    2. Crear un nuevo proyecto y configurar SSL.
+    3. Salir.
+    Su elección (1/2/3): " user_choice
 
-echo "==7== Iniciamos Supervisor: === "
-sudo systemctl enable supervisor
-sudo systemctl start supervisor
+    case $user_choice in
+        1 ) update_existing_project;;
+        2 ) create_new_project;;
+        3 ) exit;;
+        * ) echo "Opción no válida. Por favor, seleccione una opción válida (1/2/3).";;
+    esac
+}
 
-echo "==8== Instalamos python-virtualenv: === "
-sudo apt-get -qq install python-virtualenv
+# Función para actualizar un proyecto existente
+update_existing_project() {
+    print_subtitle "PROYECTOS EXISTENTES:"
+    # Listar todos los proyectos en el directorio /home/django
+    projects=(/home/django/*)
+    for ((i=0; i<${#projects[@]}; i++)); do
+        echo "$(($i+1)). ${projects[$i]##*/}"
+    done
+    
+    # Solicitar al usuario que seleccione un número de proyecto
+    read -p "Seleccione el número del proyecto que desea actualizar: " project_number
+    if [[ $project_number =~ ^[0-9]+$ ]]; then
+        if (( $project_number >= 1 && $project_number <= ${#projects[@]} )); then
+            existing_project="${projects[$(($project_number-1))]}"
+            sudo certbot certonly --nginx -d "${existing_project##*/}"
+        else
+            echo "Número de proyecto no válido."
+        fi
+    else
+        echo "Por favor, ingrese un número válido."
+    fi
+}
 
-echo "==9== Configuramos PostgreSQL: === "
-sudo su - postgres -c "createuser -s django"
-sudo su - postgres -c "createdb django_prod --owner django"
-sudo -u postgres psql -c "ALTER USER django WITH PASSWORD 'django'"
+# Función para crear un nuevo proyecto y configurar SSL
+create_new_project() {
+    read -p "Indique el nombre del nuevo proyecto: " new_project
+    read -p "Indique el nombre de dominio asociado al proyecto: " domain_name
+    sudo certbot certonly --nginx -d $domain_name
+}
 
-# Creamos el usuario del sistema
-sudo adduser --system --quiet --shell=/bin/bash --home=/home/django --gecos 'django' --group django
-gpasswd -a django sudo
+# Obtener la opción del usuario
+get_user_option
 
-echo "==10== Creamos el entorno virtual === "
-virtualenv /home/django/.venv --python=python3
-source /home/django/.venv/bin/activate
-
-echo "==11== Creamos el entorno virtual === "
-pip install -q Django
-
-echo "==12== Clonamos el proyecto === "
-read -p 'Indique la dirección del repo a clonar (https://github.com/falconsoft3d/django-father): ' gitrepo
-git -C /home/django clone $gitrepo
-read -p 'Indique la el nombre de la carpeta del proyecto (django-father): ' project
-read -p 'Indique el nombre de la app principal de Django (father): ' djapp
-
-echo "==13== Instalamos las dependencias === "
-pip install -q -r /home/django/$project/requirements.txt
-
-echo "==14== Instalamos Gunicorn === "
-pip install -q gunicorn
-
-touch /home/django/.venv/bin/gunicorn_start
-chmod u+x /home/django/.venv/bin/gunicorn_start
-echo '#!/bin/bash' >> /home/django/.venv/bin/gunicorn_start
-echo '' >> /home/django/.venv/bin/gunicorn_start
-echo 'NAME="django_app"' >> /home/django/.venv/bin/gunicorn_start
-echo 'DIR=/home/django/'$project >> /home/django/.venv/bin/gunicorn_start
-echo 'USER=django' >> /home/django/.venv/bin/gunicorn_start
-echo 'GROUP=django' >> /home/django/.venv/bin/gunicorn_start
-echo 'WORKERS=3' >> /home/django/.venv/bin/gunicorn_start
-echo 'BIND=unix:/home/django/gunicorn.sock' >> /home/django/.venv/bin/gunicorn_start
-echo 'DJANGO_SETTINGS_MODULE='$djapp'.settings' >> /home/django/.venv/bin/gunicorn_start
-echo 'DJANGO_WSGI_MODULE='$djapp'.wsgi' >> /home/django/.venv/bin/gunicorn_start
-echo 'LOG_LEVEL=error' >> /home/django/.venv/bin/gunicorn_start
-echo '' >> /home/django/.venv/bin/gunicorn_start
-echo 'source /home/django/.venv/bin/activate' >> /home/django/.venv/bin/gunicorn_start
-echo '' >> /home/django/.venv/bin/gunicorn_start
-echo 'export DJANGO_SETTINGS_MODULE=$DJANGO_SETTINGS_MODULE' >> /home/django/.venv/bin/gunicorn_start
-echo 'export PYTHONPATH=$DIR:$PYTHONPATH' >> /home/django/.venv/bin/gunicorn_start
-echo '' >> /home/django/.venv/bin/gunicorn_start
-echo 'exec /home/django/.venv/bin/gunicorn ${DJANGO_WSGI_MODULE}:application \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --name $NAME \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --workers $WORKERS \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --user=$USER \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --group=$GROUP \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --bind=$BIND \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --log-level=$LOG_LEVEL \' >> /home/django/.venv/bin/gunicorn_start
-echo '  --log-file=-' >> /home/django/.venv/bin/gunicorn_start
-
-echo "==15== Convertimos a Ejecutable el Fichero: gunicorn_start === "
-chmod u+x /home/django/.venv/bin/gunicorn_start
-
-echo "==16== Configurando Supervisor === "
-mkdir /home/django/logs
-touch /home/django/logs/gunicorn-error.log
-touch /etc/supervisor/conf.d/django_app.conf
-echo '[program:django_app]' >> /etc/supervisor/conf.d/django_app.conf
-echo 'command=/home/django/.venv/bin/gunicorn_start' >> /etc/supervisor/conf.d/django_app.conf
-echo 'user=django' >> /etc/supervisor/conf.d/django_app.conf
-echo 'autostart=true' >> /etc/supervisor/conf.d/django_app.conf
-echo 'autorestart=true' >> /etc/supervisor/conf.d/django_app.conf
-echo 'redirect_stderr=true' >> /etc/supervisor/conf.d/django_app.conf
-echo 'stdout_logfile=/home/django/logs/gunicorn-error.log' >> /etc/supervisor/conf.d/django_app.conf
-sudo supervisorctl reread
-sudo supervisorctl update
-
-echo "==17== Configurando Nginx ==="
-touch /etc/nginx/sites-available/django_app
-echo 'upstream django_app {' >> /etc/nginx/sites-available/django_app
-echo '    server unix:/home/django/gunicorn.sock fail_timeout=0;' >> /etc/nginx/sites-available/django_app
-echo '}' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo 'server {' >> /etc/nginx/sites-available/django_app
-echo '    listen 80;' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    # add here the ip address of your server' >> /etc/nginx/sites-available/django_app
-echo '    # or a domain pointing to that ip (like example.com or www.example.com)' >> /etc/nginx/sites-available/django_app
-read -p 'Indique la IP del servidor: ' serverip
-echo '    server_name '$serverip';' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    keepalive_timeout 5;' >> /etc/nginx/sites-available/django_app
-echo '    client_max_body_size 4G;' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    access_log /home/django/logs/nginx-access.log;' >> /etc/nginx/sites-available/django_app
-echo '    error_log /home/django/logs/nginx-error.log;' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    location /static/ {' >> /etc/nginx/sites-available/django_app
-echo '        alias /home/django/static/;' >> /etc/nginx/sites-available/django_app
-echo '    }' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    # checks for static file, if not found proxy to app' >> /etc/nginx/sites-available/django_app
-echo '    location / {' >> /etc/nginx/sites-available/django_app
-echo '        try_files $uri @proxy_to_app;' >> /etc/nginx/sites-available/django_app
-echo '    }' >> /etc/nginx/sites-available/django_app
-echo '' >> /etc/nginx/sites-available/django_app
-echo '    location @proxy_to_app {' >> /etc/nginx/sites-available/django_app
-echo '      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/sites-available/django_app
-echo '      proxy_set_header Host $http_host;' >> /etc/nginx/sites-available/django_app
-echo '      proxy_redirect off;' >> /etc/nginx/sites-available/django_app
-echo '      proxy_pass http://django_app;' >> /etc/nginx/sites-available/django_app
-echo '    }' >> /etc/nginx/sites-available/django_app
-echo '}' >> /etc/nginx/sites-available/django_app
-# Le metemos la IP al settings al final
-echo 'from .settings import ALLOWED_HOSTS' >> /home/django/$project/$djapp/localsettings.py
-echo 'ALLOWED_HOSTS += ["'$serverip'"]' >> /home/django/$project/$djapp/localsettings.py
-echo 'STATIC_ROOT = "/home/django/static/"' >> /home/django/$project/$djapp/localsettings.py
-
-sudo ln -s /etc/nginx/sites-available/django_app /etc/nginx/sites-enabled/django_app
-sudo rm /etc/nginx/sites-enabled/default
-sudo service nginx restart
-
-echo "=== Finalizando ==="
-python /home/django/$project/manage.py migrate
-python /home/django/$project/manage.py collectstatic
-sudo chown django:django /home/django/* -R
-sudo chown django:django /home/django/.venv/* -R
-sudo chown django:django /home/django/.venv -R
-sudo supervisorctl restart django_app
+# Fin del script
+echo "=== FINALIZADO ==="
+echo "Por favor, asegúrese de migrar la base de datos y recopilar los archivos estáticos manualmente después de ejecutar este script."
