@@ -108,7 +108,8 @@ clone_and_configure_project() {
 
 # Función para crear el entorno virtual
 create_virtual_environment() {
-    virtualenv /home/django/.venv --python=python3 || { echo "Error al crear el entorno virtual"; exit 1; }
+    sudo apt-get -qq install python3-venv || { echo "Error al instalar python3-venv"; exit 1; }
+    python3 -m venv /home/django/.venv || { echo "Error al crear el entorno virtual"; exit 1; }
 }
 
 # Función para instalar paquetes básicos
