@@ -2,7 +2,7 @@
 
 ```
 git clone https://github.com/BGamboa13/django-server-easy.git
-cd instalar-django-server-easy
+cd django-server-easy
 sudo chmod u+x django_install.sh
 ./django_install.sh
 ```

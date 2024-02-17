@@ -32,7 +32,7 @@ install_package "certbot"
 print_title "INSTALANDO LA ÚLTIMA VERSIÓN DE PYTHON"
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt-get -qq update
-install_package "python3.10"
+install_package "python3.11"
 
 # Configuración de Firewall
 print_title "CONFIGURANDO FIREWALL (ufw)"
