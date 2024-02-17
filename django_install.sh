@@ -27,6 +27,7 @@ install_package "libsqlite3-dev"
 install_package "nginx"
 install_package "supervisor"
 install_package "certbot"
+install_package "python3-certbot-nginx" 
 
 # Instalación de la última versión de Python
 print_title "INSTALANDO LA ÚLTIMA VERSIÓN DE PYTHON"
