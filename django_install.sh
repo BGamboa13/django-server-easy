@@ -121,7 +121,7 @@ EOF
     start_server
 }
 
-# Función para eliminar un proyecto y su configuración relacionada
+# Función para eliminar un proyecto existente
 delete_project() {
     print_subtitle "PROYECTOS EXISTENTES:"
     # Listar todos los proyectos en el directorio /home/django
@@ -129,25 +129,27 @@ delete_project() {
     for ((i=0; i<${#projects[@]}; i++)); do
         echo "$(($i+1)). ${projects[$i]##*/}"
     done
-
+    
     # Solicitar al usuario que seleccione un número de proyecto
     read -p "Seleccione el número del proyecto que desea eliminar: " project_number
     if [[ $project_number =~ ^[0-9]+$ ]]; then
         if (( $project_number >= 1 && $project_number <= ${#projects[@]} )); then
-            existing_project="${projects[$(($project_number-1))]}"
-            project_name="${existing_project##*/}"
+            project_to_delete="${projects[$(($project_number-1))]}"
+            
+            # Eliminar el directorio del proyecto
+            sudo rm -rf "$project_to_delete" || { echo "Error al eliminar el directorio del proyecto"; exit 1; }
+
+            # Eliminar la configuración de Nginx
+            sudo rm "/etc/nginx/sites-available/${project_to_delete##*/}" "/etc/nginx/sites-enabled/${project_to_delete##*/}" || { echo "Error al eliminar la configuración de Nginx"; exit 1; }
+
+            # Eliminar la configuración de Supervisor
+            sudo rm "/etc/supervisor/conf.d/${project_to_delete##*/}.conf" || { echo "Error al eliminar la configuración de Supervisor"; exit 1; }
 
             # Eliminar el certificado SSL
-            echo "Eliminando el certificado SSL para el proyecto $project_name..."
-            sudo certbot delete --cert-name "$project_name" || { echo "Error al eliminar el certificado SSL"; exit 1; }
+            sudo certbot delete --cert-name "${project_to_delete##*/}" || { echo "Error al eliminar el certificado SSL"; exit 1; }
 
-            # Eliminar el proyecto y su configuración relacionada
-            echo "Eliminando el proyecto $project_name y su configuración relacionada..."
-            sudo rm -rf "$existing_project" || { echo "Error al eliminar la carpeta del proyecto"; exit 1; }
-            sudo rm "/etc/nginx/sites-available/$project_name" "/etc/nginx/sites-enabled/$project_name" || { echo "Error al eliminar los archivos de configuración de Nginx"; exit 1; }
-            sudo rm "/etc/supervisor/conf.d/$project_name.conf" || { echo "Error al eliminar el archivo de configuración de Supervisor"; exit 1; }
-
-            echo "Proyecto $project_name eliminado exitosamente."
+            # Levantar el servidor
+            start_server
         else
             echo "Número de proyecto no válido."
         fi
@@ -155,7 +157,6 @@ delete_project() {
         echo "Por favor, ingrese un número válido."
     fi
 }
-
 
 # Función para crear el entorno virtual
 create_virtual_environment() {
