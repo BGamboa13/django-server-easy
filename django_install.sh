@@ -18,7 +18,7 @@ install_package() {
 # Función para levantar el servidor
 start_server() {
     sudo systemctl restart nginx
-    sudo supervisorctl restart all
+    sudo supervisorctl reload
 }
 
 # Función para obtener la opción del usuario (actualizar o crear)
@@ -88,19 +88,32 @@ clone_and_configure_project() {
     sudo certbot certonly --nginx -d "$domain_name" || { echo "Error al configurar el certificado SSL"; exit 1; }
 
     # Configurar Nginx
-    sudo touch "/etc/nginx/sites-available/$project_name"
-    sudo ln -s "/etc/nginx/sites-available/$project_name" "/etc/nginx/sites-enabled/$project_name"
+    sudo tee "/etc/nginx/sites-available/$project_name" > /dev/null <<EOF
+server {
+    listen 80;
+    server_name $domain_name;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    }
+}
+EOF
+    sudo ln -s "/etc/nginx/sites-available/$project_name" "/etc/nginx/sites-enabled/$project_name" || { echo "Error al crear enlace simbólico en Nginx"; exit 1; }
     sudo rm /etc/nginx/sites-enabled/default
 
     # Configurar supervisor
-    sudo touch "/etc/supervisor/conf.d/$project_name.conf"
-    echo "[program:$project_name]" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "command=/home/django/.venv/bin/gunicorn_start" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "user=django" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "autostart=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "autorestart=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "redirect_stderr=true" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
-    echo "stdout_logfile=/home/django/logs/$project_name-error.log" | sudo tee -a "/etc/supervisor/conf.d/$project_name.conf"
+    sudo tee "/etc/supervisor/conf.d/$project_name.conf" > /dev/null <<EOF
+[program:$project_name]
+command=/home/django/.venv/bin/gunicorn_start
+user=django
+autostart=true
+autorestart=true
+redirect_stderr=true
+stdout_logfile=/home/django/logs/$project_name-error.log
+EOF
 
     # Levantar el servidor
     start_server
